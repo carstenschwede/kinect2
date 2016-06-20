@@ -7,6 +7,7 @@
 
 using namespace v8;
 
+IAudioBeamFrameReader* 									m_pAudioBeamFrameReader  = NULL;
 IKinectSensor*											m_pKinectSensor = NULL;
 ICoordinateMapper*									m_pCoordinateMapper = NULL;
 IColorFrameReader*  								m_pColorFrameReader = NULL;
@@ -47,6 +48,7 @@ DWORD										m_enabledFrameSourceTypes = 0;
 unsigned long						m_enabledFrameTypes = 0;
 
 Nan::Callback*					m_pColorReaderCallback;
+Nan::Callback*					m_pAudioBeamReaderCallback;
 Nan::Callback*					m_pInfraredReaderCallback;
 Nan::Callback*					m_pLongExposureInfraredReaderCallback;
 Nan::Callback*					m_pDepthReaderCallback;
@@ -54,6 +56,7 @@ Nan::Callback*					m_pRawDepthReaderCallback;
 Nan::Callback*					m_pBodyReaderCallback;
 Nan::Callback*					m_pMultiSourceReaderCallback;
 
+uv_mutex_t							m_mAudioBeamReaderMutex;
 uv_mutex_t							m_mColorReaderMutex;
 uv_mutex_t							m_mInfraredReaderMutex;
 uv_mutex_t							m_mLongExposureInfraredReaderMutex;
@@ -64,7 +67,7 @@ uv_mutex_t							m_mMultiSourceReaderMutex;
 
 uv_async_t							m_aColorAsync;
 uv_thread_t							m_tColorThread;
-bool 										m_bColorThreadRunning = false;
+bool 								m_bColorThreadRunning = false;
 Nan::Persistent<Object>	m_persistentColorPixels;
 float 									m_fColorHorizontalFieldOfView;
 float 									m_fColorVerticalFieldOfView;
@@ -72,6 +75,14 @@ float 									m_fColorDiagonalFieldOfView;
 float 									m_fColorHorizontalFieldOfViewV8;
 float 									m_fColorVerticalFieldOfViewV8;
 float 									m_fColorDiagonalFieldOfViewV8;
+
+
+uv_async_t							m_aAudioBeamAsync;
+uv_thread_t							m_tAudioBeamThread;
+bool 								m_bAudioBeamThreadRunning = false;
+float 								m_fAudioBeamAngleLast;
+float 								m_fAudioBeamAngleCurrent;
+float 								m_fAudioBeamConfidence;
 
 uv_async_t							m_aInfraredAsync;
 uv_thread_t							m_tInfraredThread;
@@ -142,7 +153,7 @@ NAN_METHOD(OpenFunction)
 
 		if (SUCCEEDED(hr))
 		{
-			hr = m_pKinectSensor->Open();
+			hr = m_pKinectSensor->Open();			
 		}
 	}
 
@@ -522,6 +533,169 @@ NAN_METHOD(CloseInfraredReaderFunction)
 	stopReader(&m_mInfraredReaderMutex, &m_bInfraredThreadRunning, &m_tInfraredThread, (uv_handle_t*) &m_aInfraredAsync, m_pInfraredFrameReader);
 	info.GetReturnValue().Set(true);
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+NAUV_WORK_CB(AudioProgress_)
+{
+
+	Nan::HandleScope scope;
+	uv_mutex_lock(&m_mAudioBeamReaderMutex);
+	if(m_pAudioBeamReaderCallback != NULL && m_fAudioBeamAngleCurrent != m_fAudioBeamAngleLast)
+	{
+
+		v8::Local<v8::Object> v8body = Nan::New<v8::Object>();
+
+		Nan::Set(v8body, Nan::New<String>("angle").ToLocalChecked(), Nan::New<v8::Number>(m_fAudioBeamAngleCurrent));
+		Nan::Set(v8body, Nan::New<String>("confidence").ToLocalChecked(), Nan::New<v8::Number>(m_fAudioBeamConfidence));
+		
+		m_fAudioBeamAngleLast = m_fAudioBeamAngleCurrent;
+
+
+		Local<Value> argv[] = {
+			v8body
+		};
+		m_pAudioBeamReaderCallback->Call(1, argv);
+	}
+	uv_mutex_unlock(&m_mAudioBeamReaderMutex);
+}
+
+HRESULT processAudioBeamFrameData(IAudioBeamFrame* pAudioBeamFrame)
+{
+	HRESULT hr;
+	return hr;
+}
+
+void AudioBeamReaderThreadLoop(void *arg)
+{
+	while(1)
+	{
+
+		IAudioBeamFrame* pAudioBeamFrame = NULL;
+		HRESULT hr;
+
+		//lock the mutex to get access to the frame reader
+		uv_mutex_lock(&m_mAudioBeamReaderMutex);
+		if(!m_bAudioBeamThreadRunning)
+		{
+			uv_mutex_unlock(&m_mAudioBeamReaderMutex);
+			break;
+		}
+		
+		IAudioBeamFrameList* pAudioFrameList = nullptr;
+		hr = m_pAudioBeamFrameReader->AcquireLatestBeamFrames( &pAudioFrameList );
+
+
+		uv_mutex_unlock(&m_mAudioBeamReaderMutex);
+
+		if(SUCCEEDED(hr))
+		{
+			UINT count = 0;
+			hr = pAudioFrameList->get_BeamCount( &count );
+			//hr = processAudioBeamFrameData(pAudioBeamFrame);
+
+			if( SUCCEEDED( hr ) ){
+				for( UINT index = 0; index < count; index++ ){
+					// Frame
+					IAudioBeamFrame* pAudioFrame = nullptr;
+					hr = pAudioFrameList->OpenAudioBeamFrame( index, &pAudioFrame );
+					if( SUCCEEDED( hr ) ){
+						IAudioBeam* pAudioBeam = nullptr;
+						hr = pAudioFrame->get_AudioBeam( &pAudioBeam );
+						if( SUCCEEDED( hr ) ){
+							pAudioBeam->get_BeamAngle( &m_fAudioBeamAngleCurrent );
+							pAudioBeam->get_BeamAngleConfidence( &m_fAudioBeamConfidence );
+						}
+						SafeRelease( pAudioBeam );
+					}
+					SafeRelease( pAudioFrame );
+				}
+			}
+
+			if (SUCCEEDED(hr))
+			{
+				uv_mutex_lock(&m_mAudioBeamReaderMutex);
+				uv_mutex_unlock(&m_mAudioBeamReaderMutex);
+				uv_async_send(&m_aAudioBeamAsync);
+			}
+		}
+		SafeRelease( pAudioFrameList );
+		SafeRelease(pAudioBeamFrame);
+
+	}
+}
+
+NAN_METHOD(OpenAudioBeamReaderFunction)
+{
+
+	uv_mutex_lock(&m_mAudioBeamReaderMutex);
+	if(m_pAudioBeamReaderCallback)
+	{
+		delete m_pAudioBeamReaderCallback;
+		m_pAudioBeamReaderCallback = NULL;
+	}
+
+	m_pAudioBeamReaderCallback = new Nan::Callback(info[0].As<Function>());
+
+	HRESULT hr;
+	IAudioSource* pAudioSource;
+	hr = m_pKinectSensor->get_AudioSource( &pAudioSource );
+
+	if (SUCCEEDED(hr))
+	{
+		hr = pAudioSource->OpenReader(&m_pAudioBeamFrameReader);
+	}
+	if (SUCCEEDED(hr))
+	{
+		m_bAudioBeamThreadRunning = true;
+		uv_async_init(uv_default_loop(), &m_aAudioBeamAsync, AudioProgress_);
+		uv_thread_create(&m_tAudioBeamThread, AudioBeamReaderThreadLoop, NULL);
+	}
+
+	SafeRelease(pAudioSource);
+
+	uv_mutex_unlock(&m_mAudioBeamReaderMutex);
+	if (SUCCEEDED(hr))
+	{
+		info.GetReturnValue().Set(true);
+	}
+	else
+	{
+		info.GetReturnValue().Set(false);
+	}
+}
+
+NAN_METHOD(CloseAudioBeamReaderFunction)
+{
+	stopReader(&m_mAudioBeamReaderMutex, &m_bAudioBeamThreadRunning, &m_tAudioBeamThread, (uv_handle_t*) &m_aAudioBeamAsync, m_pAudioBeamFrameReader);
+	info.GetReturnValue().Set(true);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 NAUV_WORK_CB(LongExposureInfraredProgress_) {
 	Nan::HandleScope scope;
@@ -1866,6 +2040,9 @@ NAN_MODULE_INIT(Init)
 	m_persistentColorPixels.Reset<v8::Object>(Nan::NewBuffer((char *)m_pColorPixelsV8, cColorWidth * cColorHeight * sizeof(RGBQUAD)).ToLocalChecked());
 
 	//infrared
+	uv_mutex_init(&m_mAudioBeamReaderMutex);
+
+	//infrared
 	uv_mutex_init(&m_mInfraredReaderMutex);
 	m_persistentInfraredPixels.Reset<v8::Object>(Nan::NewBuffer(m_pInfraredPixelsV8, cInfraredWidth * cInfraredHeight).ToLocalChecked());
 
@@ -1903,6 +2080,13 @@ NAN_MODULE_INIT(Init)
 		Nan::New<FunctionTemplate>(OpenColorReaderFunction)->GetFunction());
 	Nan::Set(target, Nan::New<String>("closeColorReader").ToLocalChecked(),
 		Nan::New<FunctionTemplate>(CloseColorReaderFunction)->GetFunction());
+
+	Nan::Set(target, Nan::New<String>("openAudioBeamReader").ToLocalChecked(),
+		Nan::New<FunctionTemplate>(OpenAudioBeamReaderFunction)->GetFunction());
+	Nan::Set(target, Nan::New<String>("closeAudioBeamReader").ToLocalChecked(),
+		Nan::New<FunctionTemplate>(CloseAudioBeamReaderFunction)->GetFunction());
+
+
 	Nan::Set(target, Nan::New<String>("openInfraredReader").ToLocalChecked(),
 		Nan::New<FunctionTemplate>(OpenInfraredReaderFunction)->GetFunction());
 	Nan::Set(target, Nan::New<String>("closeInfraredReader").ToLocalChecked(),

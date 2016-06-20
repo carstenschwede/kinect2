@@ -1,0 +1,15 @@
+{
+	"name": "webclient-express-server",
+	"version": "0.0.20",
+	"description": "show audio beam in browser",
+	"main": "index.js",
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1"
+	},
+	"author": "Carsten Schwede <carsten.schwede@web.de>",
+	"license": "MIT",
+	"dependencies": {
+		"express": "~4.9.5",
+		"socket.io": "~1.1.0"
+	}
+}
