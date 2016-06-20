@@ -1205,19 +1205,24 @@ v8::Local<v8::Object> getV8BodyFrame_()
 			for (int j = 0; j < _countof(m_jsBodyFrameV8.bodies[i].joints); ++j)
 			{
 				v8::Local<v8::Object> v8joint = Nan::New<v8::Object>();
+				/*
 				Nan::Set(v8joint, Nan::New<v8::String>("depthX").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].joints[j].depthX));
 				Nan::Set(v8joint, Nan::New<v8::String>("depthY").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].joints[j].depthY));
 				Nan::Set(v8joint, Nan::New<v8::String>("colorX").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].joints[j].colorX));
 				Nan::Set(v8joint, Nan::New<v8::String>("colorY").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].joints[j].colorY));
+				*/
 				Nan::Set(v8joint, Nan::New<v8::String>("cameraX").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].joints[j].cameraX));
 				Nan::Set(v8joint, Nan::New<v8::String>("cameraY").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].joints[j].cameraY));
 				Nan::Set(v8joint, Nan::New<v8::String>("cameraZ").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].joints[j].cameraZ));
+				
 				//orientation
 				Nan::Set(v8joint, Nan::New<v8::String>("orientationX").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].joints[j].orientationX));
 				Nan::Set(v8joint, Nan::New<v8::String>("orientationY").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].joints[j].orientationY));
 				Nan::Set(v8joint, Nan::New<v8::String>("orientationZ").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].joints[j].orientationZ));
 				Nan::Set(v8joint, Nan::New<v8::String>("orientationW").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].joints[j].orientationW));
+				
 				//body ground
+				/*
 				if(m_jsBodyFrameV8.bodies[i].joints[j].hasFloorData)
 				{
 					Nan::Set(v8joint, Nan::New<v8::String>("floorDepthX").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].joints[j].floorDepthX));
@@ -1228,6 +1233,11 @@ v8::Local<v8::Object> getV8BodyFrame_()
 					Nan::Set(v8joint, Nan::New<v8::String>("floorCameraY").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].joints[j].floorCameraY));
 					Nan::Set(v8joint, Nan::New<v8::String>("floorCameraZ").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].joints[j].floorCameraZ));
 				}
+				*/
+
+				//tracking state
+				Nan::Set(v8joint, Nan::New<v8::String>("trackingState").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].joints[j].trackingState));
+
 				Nan::Set(v8joints, Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].joints[j].jointType), v8joint);
 			}
 			Nan::Set(v8body, Nan::New<v8::String>("joints").ToLocalChecked(), v8joints);
@@ -1237,6 +1247,7 @@ v8::Local<v8::Object> getV8BodyFrame_()
 	Nan::Set(v8BodyResult, Nan::New<v8::String>("bodies").ToLocalChecked(), v8bodies);
 
 	//floor plane
+	/*
 	if(m_jsBodyFrameV8.hasFloorClipPlane) {
 		v8::Local<v8::Object> v8FloorClipPlane = Nan::New<v8::Object>();
 		Nan::Set(v8FloorClipPlane, Nan::New<v8::String>("x").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.floorClipPlaneX));
@@ -1245,6 +1256,7 @@ v8::Local<v8::Object> getV8BodyFrame_()
 		Nan::Set(v8FloorClipPlane, Nan::New<v8::String>("w").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.floorClipPlaneW));
 		Nan::Set(v8BodyResult, Nan::New<v8::String>("floorClipPlane").ToLocalChecked(), v8FloorClipPlane);
 	}
+	*/
 
 	return scope.Escape(v8BodyResult);
 }
@@ -1335,13 +1347,13 @@ HRESULT processBodyFrameData(IBodyFrame* pBodyFrame)
 						{
 							m_pCoordinateMapper->MapCameraPointToDepthSpace(joints[j].Position, &depthPoint);
 							m_pCoordinateMapper->MapCameraPointToColorSpace(joints[j].Position, &colorPoint);
-
+/*
 							m_jsBodyFrame.bodies[i].joints[j].depthX = depthPoint.X / cDepthWidth;
 							m_jsBodyFrame.bodies[i].joints[j].depthY = depthPoint.Y / cDepthHeight;
 
 							m_jsBodyFrame.bodies[i].joints[j].colorX = colorPoint.X / cColorWidth;
 							m_jsBodyFrame.bodies[i].joints[j].colorY = colorPoint.Y / cColorHeight;
-
+*/
 							m_jsBodyFrame.bodies[i].joints[j].cameraX = joints[j].Position.X;
 							m_jsBodyFrame.bodies[i].joints[j].cameraY = joints[j].Position.Y;
 							m_jsBodyFrame.bodies[i].joints[j].cameraZ = joints[j].Position.Z;
@@ -1353,6 +1365,7 @@ HRESULT processBodyFrameData(IBodyFrame* pBodyFrame)
 
 							m_jsBodyFrame.bodies[i].joints[j].jointType = joints[j].JointType;
 						}
+						/*
 						//calculate body ground position
 						if(m_includeJointFloorData && m_jsBodyFrame.hasFloorClipPlane)
 						{
@@ -1387,6 +1400,7 @@ HRESULT processBodyFrameData(IBodyFrame* pBodyFrame)
 								m_jsBodyFrame.bodies[i].joints[j].hasFloorData = false;
 							}
 						}
+						*/
 					}
 				}
 				else

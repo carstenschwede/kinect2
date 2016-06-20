@@ -5,13 +5,17 @@
 
 typedef struct _JSJoint
 {
+	/*
 	float depthX;
 	float depthY;
 	float colorX;
 	float colorY;
+	*/
 	float cameraX;
 	float cameraY;
 	float cameraZ;
+
+	/*
 	//
 	bool hasFloorData;
 	float floorDepthX;
@@ -21,12 +25,14 @@ typedef struct _JSJoint
 	float floorCameraX;
 	float floorCameraY;
 	float floorCameraZ;
+	*/
 	//
 	float orientationX;
 	float orientationY;
 	float orientationZ;
 	float orientationW;
 	//
+	int trackingState;
 	int jointType;
 } JSJoint;
 
