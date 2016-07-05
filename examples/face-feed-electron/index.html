@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Hello World!</title>
+		<style>
+		#toggleFeedButton {
+			display: block;
+		}
+		</style>
+	</head>
+	<body>
+		<button id="toggleFeedButton" disabled="disabled" style="position:absolute;z-index:200">Stop Tracking</button>
+		<canvas id="outputCanvas" width="1920" height="1080" style="position:absolute;left:0;top:0;z-index:10"></canvas>
+		<canvas id="faceCanvas" width="1920" height="1080"  style="position:absolute;left:0;top:0;z-index:20"></canvas>
+
+		<script src="../shared/js/fps.js"></script>
+		<script>
+		(function(){
+
+			var Kinect2 = require('../../lib/kinect2');
+			var kinect = new Kinect2();
+
+			var colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#00ffff', '#ff00ff'];
+
+			// handstate circle size
+			var HANDSIZE = 20;
+
+			// closed hand state color
+			var HANDCLOSEDCOLOR = "red";
+
+			// open hand state color
+			var HANDOPENCOLOR = "green";
+
+			// lasso hand state color
+			var HANDLASSOCOLOR = "blue";
+
+			var toggleFeedButton = document.getElementById('toggleFeedButton');
+
+			var feedOpen = false;
+			var processing = false;
+
+			var canvasFace = document.getElementById('faceCanvas');
+			var ctxFace = canvasFace.getContext('2d');
+
+			var canvas = document.getElementById('outputCanvas');
+			var ctx = canvas.getContext('2d');
+			var imageData = ctx.createImageData(canvas.width, canvas.height);
+			var imageDataSize = imageData.data.length;
+			var imageDataArray = imageData.data;
+
+
+			function setFeedOpen(value) {
+				if(value !== feedOpen) {
+					feedOpen = value;
+					if(feedOpen) {
+						toggleFeedButton.innerHTML = 'Stop Tracking';
+						kinect.openBodyReader();
+						kinect.openFaceReader();
+						kinect.openColorReader();
+					} else {
+						toggleFeedButton.innerHTML = 'Start Tracking';
+						kinect.closeFaceReader();
+						kinect.closeBodyReader();
+						kinect.closeColorReader();
+
+					}
+				}
+			}
+
+			if(kinect.open()) {
+				kinect.on('colorFrame', function(newPixelData){
+					if(processing) {
+						return;
+					}
+					processing = true;
+					for (var i = 0; i < imageDataSize; i++) {
+						imageDataArray[i] = newPixelData[i];
+					}
+					ctx.putImageData(imageData, 0, 0);
+					processing = false;
+				});
+
+
+				kinect.on('bodyFrame', function(bodyFrame){
+					ctxFace.clearRect(0, 0, canvasFace.width, canvasFace.height);
+					console.log(canvasFace.width,canvasFace.height);
+					bodyFrame.bodies.forEach(function(body){
+						if(body.tracked) {
+							var w = body.face.boundingBoxRight - body.face.boundingBoxLeft;
+							var h = body.face.boundingBoxBottom - body.face.boundingBoxTop;
+							var x = body.face.boundingBoxLeft;
+							var y = body.face.boundingBoxTop;
+							ctxFace.beginPath();
+							ctxFace.rect(x,y,w,h);
+							ctxFace.stroke();
+							ctxFace.closePath();
+						}
+					});
+				});
+
+				toggleFeedButton.addEventListener('click', function(){
+					setFeedOpen(!feedOpen);
+				});
+
+				toggleFeedButton.removeAttribute('disabled');
+
+				setFeedOpen(true);
+			}
+		})();
+		</script>
+	</body>
+</html>

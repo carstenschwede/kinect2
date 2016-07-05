@@ -36,6 +36,19 @@ typedef struct _JSJoint
 	int jointType;
 } JSJoint;
 
+typedef struct _JSFace {
+	int boundingBoxLeft;
+	int boundingBoxTop;
+	int boundingBoxBottom;
+	int boundingBoxRight;
+
+	float rotationX;
+	float rotationY;
+	float rotationZ;
+	float rotationW;
+
+} JSFace;
+
 typedef struct _JSBody
 {
 	bool tracked;
@@ -44,6 +57,7 @@ typedef struct _JSBody
 	char leftHandState;
 	char rightHandState;
 	JSJoint joints[JointType_Count];
+	JSFace face;
 } JSBody;
 
 typedef struct _JSBodyFrame

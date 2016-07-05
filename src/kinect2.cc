@@ -2,6 +2,8 @@
 #include <iostream>
 #include <uv.h>
 #include "Kinect.h"
+#include "Kinect.Face.h"
+
 #include "Globals.h"
 #include "Structs.h"
 
@@ -15,6 +17,11 @@ IInfraredFrameReader* 							m_pInfraredFrameReader = NULL;
 ILongExposureInfraredFrameReader* 	m_pLongExposureInfraredFrameReader = NULL;
 IDepthFrameReader*									m_pDepthFrameReader = NULL;
 IBodyFrameReader*										m_pBodyFrameReader = NULL;
+
+
+IFaceFrameReader*	   	m_pFaceFrameReaders[BODY_COUNT];
+IFaceFrameSource* 		m_pFaceFrameSources[BODY_COUNT];
+
 IMultiSourceFrameReader*						m_pMultiSourceFrameReader = NULL;
 
 RGBQUAD*								m_pColorPixels = new RGBQUAD[cColorWidth * cColorHeight];
@@ -691,6 +698,78 @@ NAN_METHOD(CloseAudioBeamReaderFunction)
 
 
 
+NAN_METHOD(OpenFaceReaderFunction)
+{
+ 	for (int i = 0; i < BODY_COUNT; i++)
+    {
+        m_pFaceFrameSources[i] = nullptr;
+        m_pFaceFrameReaders[i] = nullptr;
+    }
+
+	HRESULT hr;
+
+
+	// create a face frame source + reader to track each body in the fov
+	for (int i = 0; i < BODY_COUNT; i++)
+	{
+		static const DWORD c_FaceFrameFeatures = 
+			FaceFrameFeatures::FaceFrameFeatures_BoundingBoxInColorSpace
+			| FaceFrameFeatures::FaceFrameFeatures_PointsInColorSpace
+			| FaceFrameFeatures::FaceFrameFeatures_RotationOrientation
+			| FaceFrameFeatures::FaceFrameFeatures_Happy
+			| FaceFrameFeatures::FaceFrameFeatures_RightEyeClosed
+			| FaceFrameFeatures::FaceFrameFeatures_LeftEyeClosed
+			| FaceFrameFeatures::FaceFrameFeatures_MouthOpen
+			| FaceFrameFeatures::FaceFrameFeatures_MouthMoved
+			| FaceFrameFeatures::FaceFrameFeatures_LookingAway
+			| FaceFrameFeatures::FaceFrameFeatures_Glasses
+			| FaceFrameFeatures::FaceFrameFeatures_FaceEngagement;
+
+		// create the face frame source by specifying the required face frame features
+		hr = CreateFaceFrameSource(m_pKinectSensor, 0, c_FaceFrameFeatures, &m_pFaceFrameSources[i]);
+
+		if (SUCCEEDED(hr))
+		{
+			// open the corresponding reader
+			hr = m_pFaceFrameSources[i]->OpenReader(&m_pFaceFrameReaders[i]);
+		}				
+	}
+
+	if (SUCCEEDED(hr))
+	{
+		info.GetReturnValue().Set(true);
+	}
+	else
+	{
+		info.GetReturnValue().Set(false);
+	}
+	
+}
+
+NAN_METHOD(CloseFaceReaderFunction)
+{
+ 	for (int i = 0; i < BODY_COUNT; i++)
+    {
+        SafeRelease(m_pFaceFrameSources[i]);
+        SafeRelease(m_pFaceFrameReaders[i]);
+    }
+
+	info.GetReturnValue().Set(true);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1241,6 +1320,20 @@ v8::Local<v8::Object> getV8BodyFrame_()
 				Nan::Set(v8joints, Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].joints[j].jointType), v8joint);
 			}
 			Nan::Set(v8body, Nan::New<v8::String>("joints").ToLocalChecked(), v8joints);
+
+			v8::Local<v8::Object> v8face = Nan::New<v8::Object>();
+
+			Nan::Set(v8face, Nan::New<v8::String>("boundingBoxTop").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].face.boundingBoxTop));
+			Nan::Set(v8face, Nan::New<v8::String>("boundingBoxBottom").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].face.boundingBoxBottom));
+			Nan::Set(v8face, Nan::New<v8::String>("boundingBoxLeft").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].face.boundingBoxLeft));
+			Nan::Set(v8face, Nan::New<v8::String>("boundingBoxRight").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].face.boundingBoxRight));
+
+			Nan::Set(v8face, Nan::New<v8::String>("rotationX").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].face.rotationX));
+			Nan::Set(v8face, Nan::New<v8::String>("rotationY").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].face.rotationY));
+			Nan::Set(v8face, Nan::New<v8::String>("rotationZ").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].face.rotationZ));
+			Nan::Set(v8face, Nan::New<v8::String>("rotationW").ToLocalChecked(), Nan::New<v8::Number>(m_jsBodyFrameV8.bodies[i].face.rotationW));
+			Nan::Set(v8body, Nan::New<v8::String>("face").ToLocalChecked(), v8face);
+
 		}
 		Nan::Set(v8bodies, i, v8body);
 	}
@@ -1407,6 +1500,81 @@ HRESULT processBodyFrameData(IBodyFrame* pBodyFrame)
 				{
 					m_jsBodyFrame.bodies[i].trackingId = 0;
 				}
+
+
+				if (m_pFaceFrameReaders[i]) {
+// retrieve the latest face frame from this reader
+				IFaceFrame* pFaceFrame = nullptr;
+				hr = m_pFaceFrameReaders[i]->AcquireLatestFrame(&pFaceFrame);
+
+				BOOLEAN bFaceTracked = false;
+				if (SUCCEEDED(hr) && nullptr != pFaceFrame)
+				{
+					// check if a valid face is tracked in this face frame
+					hr = pFaceFrame->get_IsTrackingIdValid(&bFaceTracked);
+				}
+
+				if (SUCCEEDED(hr))
+				{
+					if (bFaceTracked)
+					{
+						IFaceFrameResult* pFaceFrameResult = nullptr;
+						RectI faceBox = {0};
+						Vector4 faceRotation;
+
+						hr = pFaceFrame->get_FaceFrameResult(&pFaceFrameResult);
+
+						// need to verify if pFaceFrameResult contains data before trying to access it
+						if (SUCCEEDED(hr) && pFaceFrameResult != nullptr)
+						{
+							hr = pFaceFrameResult->get_FaceBoundingBoxInColorSpace(&faceBox);
+	
+							if (SUCCEEDED(hr))
+							{
+								m_jsBodyFrame.bodies[i].face.boundingBoxTop = faceBox.Top;
+								m_jsBodyFrame.bodies[i].face.boundingBoxBottom = faceBox.Bottom;
+								m_jsBodyFrame.bodies[i].face.boundingBoxLeft = faceBox.Left;
+								m_jsBodyFrame.bodies[i].face.boundingBoxRight = faceBox.Right;
+							}
+
+							hr = pFaceFrameResult->get_FaceRotationQuaternion(&faceRotation);
+							if (SUCCEEDED(hr))
+							{
+								m_jsBodyFrame.bodies[i].face.rotationX = faceRotation.x;
+								m_jsBodyFrame.bodies[i].face.rotationY = faceRotation.y;
+								m_jsBodyFrame.bodies[i].face.rotationZ = faceRotation.z;
+								m_jsBodyFrame.bodies[i].face.rotationW = faceRotation.w;
+							}							
+						}
+
+						SafeRelease(pFaceFrameResult);	
+					}
+					else 
+					{	
+						// check if the corresponding body is tracked 
+						// if this is true then update the face frame source to track this body
+						IBody* pBody = ppBodies[i];
+						if (pBody != nullptr)
+						{
+							BOOLEAN bTracked = false;
+							hr = pBody->get_IsTracked(&bTracked);
+
+							UINT64 bodyTId;
+							if (SUCCEEDED(hr) && bTracked)
+							{
+								// get the tracking ID of this body
+								hr = pBody->get_TrackingId(&bodyTId);
+								if (SUCCEEDED(hr))
+								{
+									// update the face frame source with the tracking ID
+									m_pFaceFrameSources[i]->put_TrackingId(bodyTId);
+								}
+							}
+						}
+					}
+				}
+				}
+				
 			}
 		}
 	}
@@ -2100,7 +2268,6 @@ NAN_MODULE_INIT(Init)
 	Nan::Set(target, Nan::New<String>("closeAudioBeamReader").ToLocalChecked(),
 		Nan::New<FunctionTemplate>(CloseAudioBeamReaderFunction)->GetFunction());
 
-
 	Nan::Set(target, Nan::New<String>("openInfraredReader").ToLocalChecked(),
 		Nan::New<FunctionTemplate>(OpenInfraredReaderFunction)->GetFunction());
 	Nan::Set(target, Nan::New<String>("closeInfraredReader").ToLocalChecked(),
@@ -2109,10 +2276,18 @@ NAN_MODULE_INIT(Init)
 		Nan::New<FunctionTemplate>(OpenLongExposureInfraredReaderFunction)->GetFunction());
 	Nan::Set(target, Nan::New<String>("closeLongExposureInfraredReader").ToLocalChecked(),
 		Nan::New<FunctionTemplate>(CloseLongExposureInfraredReaderFunction)->GetFunction());
+	
 	Nan::Set(target, Nan::New<String>("openDepthReader").ToLocalChecked(),
 		Nan::New<FunctionTemplate>(OpenDepthReaderFunction)->GetFunction());
 	Nan::Set(target, Nan::New<String>("closeDepthReader").ToLocalChecked(),
 		Nan::New<FunctionTemplate>(CloseDepthReaderFunction)->GetFunction());
+
+	Nan::Set(target, Nan::New<String>("openFaceReader").ToLocalChecked(),
+		Nan::New<FunctionTemplate>(OpenFaceReaderFunction)->GetFunction());
+
+	Nan::Set(target, Nan::New<String>("closeFaceReader").ToLocalChecked(),
+		Nan::New<FunctionTemplate>(CloseFaceReaderFunction)->GetFunction());
+
 	Nan::Set(target, Nan::New<String>("openRawDepthReader").ToLocalChecked(),
 		Nan::New<FunctionTemplate>(OpenRawDepthReaderFunction)->GetFunction());
 	Nan::Set(target, Nan::New<String>("closeRawDepthReader").ToLocalChecked(),
